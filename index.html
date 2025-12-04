@@ -1,50 +1,85 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-  <meta charset="UTF-8">
-  <title>NAGUMO - Điều khiển bể cá</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>NAGUMO • Bể cá thông minh</title>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    body {font-family: Arial; background:white; color:black; padding:20px; margin:0;}
-    h1 {text-align:center; color:#0066cc; border-bottom:2px solid #0066cc; padding-bottom:10px;}
-    .status {font-size:24px; text-align:center; margin:20px; padding:15px; background:#f0f0f0;}
-    .btn {display:block; width:80%; margin:15px auto; padding:20px; font-size:20px; text-align:center;}
-    .on {background:#00aa00; color:white;}
-    .off {background:#cc0000; color:white;}
-    .auto {background:#0066cc; color:white;}
-    .info {margin:20px; font-size:18px; text-align:center;}
+    :root { --bg: #0f172a; --card: #1e293b; --text: #f1f5f9; --accent: #00d4ff; --green: #10b981; --red: #ef4444; }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {font-family:'Inter',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; padding:20px 10px;}
+    .container {max-width:480px; margin:0 auto;}
+    header {text-align:center; padding:30px 0;}
+    h1 {font-size:28px; font-weight:700; color:var(--accent);}
+    h2 {font-size:16px; color:#94a3b8; margin-top:8px;}
+    .status {background:var(--card); border-radius:16px; padding:20px; text-align:center; margin:20px 0; font-size:18px; font-weight:500;}
+    .connected {color:#10b981;}
+    .sensors {display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:30px 0;}
+    .sensor-card {background:var(--card); border-radius:16px; padding:24px; text-align:center;}
+    .sensor-value {font-size:36px; font-weight:700; margin:8px 0;}
+    .sensor-label {font-size:14px; color:#94a3b8;}
+    .controls {margin:40px 0;}
+    .btn {display:block; width:100%; padding:20px; margin:12px 0; border:none; border-radius:16px; font-size:18px; font-weight:600; cursor:pointer; transition:0.3s;}
+    .btn-auto {background:#6366f1; color:white;}
+    .btn-on {background:var(--green); color:white;}
+    .btn-off {background:var(--red); color:white;}
+    .stats {display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:30px;}
+    .stat-card {background:var(--card); border-radius:16px; padding:20px; text-align:center;}
+    .stat-num {font-size:32px; font-weight:700;}
+    .stat-label {font-size:14px; color:#94a3b8; margin-top:4px;}
+    footer {text-align:center; margin-top:50px; color:#64748b; font-size:14px;}
   </style>
 </head>
 <body>
-  <h1>HỆ THỐNG ĐIỀU KHIỂN BỂ CÁ NAGUMO</h1>
-  <p style="text-align:center;">Trường Đại học Hàng Hải Việt Nam - VIMARU 2025</p>
+<div class="container">
+  <header>
+    <h1>NAGUMO</h1>
+    <h2>Hệ thống giám sát bể cá thông minh • VIMARU 2025</h2>
+  </header>
 
-  <div class="status" id="connectStatus">Đang kết nối...</div>
+  <div class="status" id="status">Đang kết nối MQTT...</div>
 
-  <div class="info">
-    Nhiệt độ: <b><span id="temp">--</span> °C</b><br><br>
-    Mực nước: <b><span id="dist">--</span> mm</b>
+  <div class="sensors">
+    <div class="sensor-card">
+      <div class="sensor-value"><span id="temp">--</span>°C</div>
+      <div class="sensor-label">Nhiệt độ nước (DS18B20)</div>
+    </div>
+    <div class="sensor-card">
+      <div class="sensor-value"><span id="dist">--</span> mm</div>
+      <div class="sensor-label">Mực nước</div>
+    </div>
   </div>
 
-  <button class="btn auto" id="btnAuto">CHẾ ĐỘ AUTO</button>
-  <button class="btn off" id="btnPump">BƠM: DỪNG</button>
-  <button class="btn off" id="btnLight">ĐÈN: TẮT</button>
-
-  <div class="info">
-    Số lần bật bơm: <b><span id="pumpCount">0</span></b><br>
-    Số lần bật đèn: <b><span id="lightCount">0</span></b>
+  <div class="controls">
+    <button class="btn btn-auto" id="btnAuto">CHẾ ĐỘ TỰ ĐỘNG</button>
+    <button class="btn btn-off" id="btnPump">BƠM: DỪNG</button>
+    <button class="btn btn-off" id="btnLight">ĐÈN: TẮT</button>
   </div>
 
-  <div style="text-align:center; margin-top:30px;">
-    <a href="report.html" style="font-size:18px; color:#0066cc;">→ Xem báo cáo chi tiết</a>
+  <div class="stats">
+    <div class="stat-card">
+      <div class="stat-num"><span id="pumpCount">0</span></div>
+      <div class="stat-label">Lần bật bơm</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num"><span id="lightCount">0</span></div>
+      <div class="stat-label">Lần bật đèn</div>
+    </div>
   </div>
+
+  <footer>
+    <a href="report.html" style="color:var(--accent); text-decoration:none;">→ Xem báo cáo chi tiết</a>
+  </footer>
+</div>
 
 <script>
 const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 const topic = 'vimaru/nagumo/status';
 
 client.on('connect', () => {
-  document.getElementById('connectStatus').innerHTML = '<b style="color:green;">ĐÃ KẾT NỐI THÀNH CÔNG!</b>';
+  document.getElementById('status').innerHTML = '<span class="connected">ĐÃ KẾT NỐI • DỮ LIỆU REALTIME</span>';
   client.subscribe(topic);
 });
 
@@ -56,13 +91,13 @@ client.on('message', (t, msg) => {
   document.getElementById('pumpCount').innerText = latest.pumpCount || 0;
   document.getElementById('lightCount').innerText = latest.lightCount || 0;
 
-  document.getElementById('btnAuto').className = latest.auto ? 'btn auto' : 'btn off';
-  document.getElementById('btnAuto').innerText = latest.auto ? 'CHẾ ĐỘ AUTO' : 'CHẾ ĐỘ THỦ CÔNG';
+  document.getElementById('btnAuto').className = latest.auto ? 'btn btn-auto' : 'btn btn-off';
+  document.getElementById('btnAuto').innerText = latest.auto ? 'CHẾ ĐỘ TỰ ĐỘNG' : 'CHẾ ĐỘ THỦ CÔNG';
 
-  document.getElementById('btnPump').className = latest.pump ? 'btn on' : 'btn off';
+  document.getElementById('btnPump').className = latest.pump ? 'btn btn-on' : 'btn btn-off';
   document.getElementById('btnPump').innerText = latest.pump ? 'BƠM ĐANG CHẠY' : 'BƠM DỪNG';
 
-  document.getElementById('btnLight').className = latest.light ? 'btn on' : 'btn off';
+  document.getElementById('btnLight').className = latest.light ? 'btn btn-on' : 'btn btn-off';
   document.getElementById('btnLight').innerText = latest.light ? 'ĐÈN ĐANG BẬT' : 'ĐÈN TẮT';
 });
 
