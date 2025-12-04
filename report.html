@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Báo cáo Nagumo</title>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+  <style>
+    body {font-family: system-ui; background:#0f172a; color:#e2e8f0; padding:20px;}
+    .card {background:#1e293b; padding:20px; border-radius:16px; margin:15px 0;}
+    button {padding:12px 20px; font-size:16px; margin:5px;}
+    table {width:100%; border-collapse:collapse; margin-top:20px;}
+    th, td {border:1px solid #475569; padding:10px; text-align:center;}
+    th {background:#1d4ed8;}
+  </style>
+</head>
+<body>
+  <h1 style="text-align:center; color:#22d3ee;">BÁO CÁO HỆ THỐNG NAGUMO</h1>
+  <div class="card">
+    <label>Chọn ngày: </label>
+    <input type="date" id="datePicker"/>
+    <button onclick="loadReport()">XEM BÁO CÁO</button>
+    <button onclick="exportExcel()">XUẤT EXCEL</button>
+  </div>
+
+  <div class="card">
+    <h2 id="title">Chọn ngày để xem báo cáo</h2>
+    <p>Tổng lần bật đèn: <b id="lightCnt">0</b> lần</p>
+    <p>Tổng lần bật bơm: <b id="pumpCnt">0</b> lần</p>
+  </div>
+
+  <div class="card">
+    <canvas id="tempChart"></canvas>
+  </div>
+
+  <div class="card">
+    <h3>Lịch sử chi tiết</h3>
+    <table id="table"><tr><th>Thời gian</th><th>Nguồn</th><th>Hành động</th></tr></table>
+  </div>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyAtxDRC6LzxTD-d0JvRDPQnejNgYFVzQ38",
+  databaseURL: "https://nagumo-2f89d-default-rtdb.asia-southeast1.firebasedatabase.app",
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+let historyData = [];
+const ctx = document.getElementById('tempChart').getContext('2d');
+const chart = new Chart(ctx, {type:'line', data:{labels:[], datasets:[{label:'Nhiệt độ (°C)', data:[], borderColor:'#22c55e'}]}});
+
+document.getElementById('datePicker').valueAsDate = new Date();
+function loadReport() {
+  const date = document.getElementById('datePicker').value;
+  const start = new Date(date).setHours(0,0,0,0);
+  const end = new Date(date).setHours(23,59,59,999);
+
+  document.getElementById('title').innerText = `BÁO CÁO NGÀY ${date}`;
+  db.ref("/history").once("value").then(snap => {
+    const data = snap.val();
+    historyData = [];
+    let lightCnt = 0, pumpCnt = 0;
+    document.getElementById('table').innerHTML = "<tr><th>Thời gian</th><th>Nguồn</th><th>Hành động</th></tr>";
+
+    for (let key in data) {
+      const h = data[key];
+      if (h.timestamp) {
+        const ts = new Date(h.timestamp).getTime();
+        if (ts >= start && ts <= end) {
+          historyData.push(h);
+          if (h.action.includes("Light ON")) lightCnt++;
+          if (h.action.includes("Pump ON")) pumpCnt++;
+
+          const row = document.getElementById('table').insertRow();
+          row.insertCell().innerText = h.timestamp;
+          row.insertCell().innerText = h.by || "ESP";
+          row.insertCell().innerText = h.action;
+        }
+      }
+    }
+    document.getElementById('lightCnt').innerText = lightCnt;
+    document.getElementById('pumpCnt').innerText = pumpCnt;
+  });
+}
+
+function exportExcel() {
+  const ws = XLSX.utils.table_to_sheet(document.getElementById('table'));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Nagumo");
+  XLSX.writeFile(wb, `Nagumo_${document.getElementById('datePicker').value}.xlsx`);
+}
+
+// Load hôm nay khi mở trang
+loadReport();
+</script>
+</body>
+</html>
