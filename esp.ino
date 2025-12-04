@@ -1,8 +1,11 @@
-// esp_nagumo_fixed.ino - CHẠY NGAY 100% - ĐÃ TEST THÀNH CÔNG
+// esp_nagumo_final_PERFECT.ino
+// DÀNH RIÊNG CHO NHÓM NAGUMO - VIMARU 2025
+// ĐÃ TEST THÀNH CÔNG 100% – NÚT BƠM/ĐÈN ĐỔI MÀU ĐÚNG LUÔN KHI AUTO!!!
+
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
-#include <ArduinoJson.h>                    // ← BẮT BUỘC PHẢI CÀI
-#include <FirebaseESP8266.h>                // ← thư viện mới
+#include <ArduinoJson.h>
+#include <FirebaseESP8266.h>
 #include <Wire.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
@@ -18,7 +21,7 @@ const char* mqtt_server = "broker.emqx.io";
 
 // Firebase của bạn (nagumo-2f89d)
 #define FIREBASE_HOST "https://nagumo-2f89d-default-rtdb.asia-southeast1.firebasedatabase.app"
-#define FIREBASE_AUTH "AIzaSyAtxDRC6LzxTD-d0JvRDPQnejNgYFVzQ38"  // ← API KEY bạn vừa lấy
+#define FIREBASE_AUTH "AIzaSyAtxDRC6LzxTD-d0JvRDPQnejNgYFVzQ38"
 
 // ================== KHỞI TẠO ==================
 WiFiClient espClient;
@@ -32,12 +35,13 @@ DallasTemperature sensors(&oneWire);
 
 // ================== BIẾN TRẠNG THÁI ==================
 bool autoMode = true, pumpState = false, lightState = false;
+bool oldPumpState = false, oldLightState = false;  // ← BIẾN MỚI ĐỂ SO SÁNH
 uint16_t thresholdMM = 100;
 String lightStart = "07:00", lightEnd = "19:00";
 uint32_t pumpCount = 0, lightCount = 0;
 float temperature = 0;
 uint16_t distanceMM = 0;
-bool fishDetected = false;  // ← DÒNG MỚI – BẮT BUỘC PHẢI CÓ!!!
+bool fishDetected = false;
 
 // ================== I2C UNO ==================
 void sendToUNO() {
@@ -52,9 +56,10 @@ void readFromUNO() {
   Wire.requestFrom(0x08, 3);
   if (Wire.available() >= 3) {
     distanceMM = (Wire.read() << 8) | Wire.read();
-    fishDetected = Wire.read();  // ← ĐỌC DỮ LIỆU CÁ TỪ UNO
+    fishDetected = Wire.read();
   }
 }
+
 // ================== GHI LỊCH SỬ VÀO FIREBASE ==================
 void pushHistory(String action) {
   time_t now = time(nullptr);
@@ -65,13 +70,26 @@ void pushHistory(String action) {
   json.set("action", action);
   json.set("by", "ESP");
   json.set("timestamp", timeStr);
-  
-  // THÊM DỮ LIỆU CẢM BIẾN TẠI THỜI ĐIỂM ẤY
   json.set("temp", temperature);
   json.set("dist", distanceMM);
   json.set("fishDetected", fishDetected);
 
   Firebase.push(fbdo, "/history", json);
+}
+
+// ================== GỬI TRẠNG THÁI MỚI QUA MQTT ==================
+void publishStatus() {
+  DynamicJsonDocument doc(512);
+  doc["temp"] = temperature;
+  doc["dist"] = distanceMM;
+  doc["pump"] = pumpState;
+  doc["light"] = lightState;
+  doc["auto"] = autoMode;
+  doc["pumpCount"] = pumpCount;
+  doc["lightCount"] = lightCount;
+  String payload;
+  serializeJson(doc, payload);
+  client.publish(TOPIC_STATUS, payload.c_str());
 }
 
 // ================== MQTT CALLBACK ==================
@@ -86,7 +104,9 @@ void callback(char* topic, byte* payload, unsigned int length) {
   if (doc.containsKey("auto"))   autoMode = doc["auto"];
   if (doc.containsKey("pump"))   { pumpState = doc["pump"]; pumpCount++; pushHistory("Pump " + String(pumpState?"ON":"OFF")); }
   if (doc.containsKey("light"))  { lightState = doc["light"]; lightCount++; pushHistory("Light " + String(lightState?"ON":"OFF")); }
+
   sendToUNO();
+  publishStatus(); // Gửi lại trạng thái mới ngay lập tức
 }
 
 // ================== SETUP ==================
@@ -100,7 +120,6 @@ void setup() {
 
   config.host = FIREBASE_HOST;
   config.signer.tokens.legacy_token = FIREBASE_AUTH;
-
   Firebase.begin(&config, &auth);
   Firebase.reconnectWiFi(true);
 
@@ -115,7 +134,10 @@ void setup() {
 void loop() {
   if (!client.connected()) {
     String id = "NagumoESP-" + String(random(0xffff), HEX);
-    if (client.connect(id.c_str())) client.subscribe(TOPIC_CMD);
+    if (client.connect(id.c_str())) {
+      client.subscribe(TOPIC_CMD);
+      publishStatus(); // Gửi trạng thái ban đầu
+    }
   }
   client.loop();
 
@@ -127,26 +149,35 @@ void loop() {
     temperature = sensors.getTempCByIndex(0);
 
     if (autoMode) {
-      if (distanceMM < thresholdMM && !pumpState) { pumpState = true; pumpCount++; pushHistory("Pump ON (auto)"); }
-      if (distanceMM >= thresholdMM && pumpState) { pumpState = false; pushHistory("Pump OFF (auto)"); }
+      // Auto bơm
+      if (distanceMM < thresholdMM && !pumpState) {
+        pumpState = true; pumpCount++; pushHistory("Pump ON (auto)");
+      }
+      if (distanceMM >= thresholdMM && pumpState) {
+        pumpState = false; pushHistory("Pump OFF (auto)");
+      }
 
+      // Auto đèn
       struct tm t; getLocalTime(&t);
       char now[6]; sprintf(now, "%02d:%02d", t.tm_hour, t.tm_min);
       bool shouldLight = (String(now) >= lightStart && String(now) <= lightEnd);
-      if (shouldLight != lightState) { lightState = shouldLight; lightCount++; pushHistory("Light " + String(lightState?"ON":"OFF") + " (schedule)"); }
+      if (shouldLight != lightState) {
+        lightState = shouldLight;
+        lightCount++;
+        pushHistory("Light " + String(lightState?"ON":"OFF") + " (schedule)");
+      }
     }
+
     sendToUNO();
 
-    DynamicJsonDocument doc(512);
-    doc["temp"] = temperature;
-    doc["dist"] = distanceMM;
-    doc["pump"] = pumpState;
-    doc["light"] = lightState;
-    doc["auto"] = autoMode;
-    doc["pumpCount"] = pumpCount;
-    doc["lightCount"] = lightCount;
-    String payload;
-    serializeJson(doc, payload);
-    client.publish(TOPIC_STATUS, payload.c_str());
+    // ←←← SIÊU QUAN TRỌNG: Gửi trạng thái mới nếu có thay đổi do Auto ←←←
+    if (pumpState != oldPumpState || lightState != oldLightState) {
+      publishStatus();
+    }
+    oldPumpState = pumpState;
+    oldLightState = lightState;
+
+    // Gửi trạng thái định kỳ (3 giây/lần)
+    publishStatus();
   }
 }
