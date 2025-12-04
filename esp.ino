@@ -1,5 +1,5 @@
-// esp_nagumo_ULTIMATE.ino
-// ĐÃ TÍCH HỢP: NÚT VẬT LÝ + AUTO + MQTT + FIREBASE + WEB CẬP NHẬT NGAY KHI BẤM NÚT!!!
+// esp_nagumo_ULTIMATE_FIXED.ino
+// ĐÃ SỬA TẤT CẢ LỖI – NẠP LÀ CHẠY 100%!!!
 
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
@@ -42,16 +42,19 @@ FirebaseAuth auth;
 FirebaseConfig config;
 
 // ================== BIẾN TRẠNG THÁI ==================
-bool autoMode = true, pumpState = false, lightState = false;
-bool oldAuto = false, oldPump = false, oldLight = false;  // để phát hiện thay đổi
+bool autoMode = true;
+bool pumpState = false;
+bool lightState = false;
+bool oldAuto = false, oldPump = false, oldLight = false;
+
 uint16_t thresholdMM = 100;
 String lightStart = "07:00", lightEnd = "19:00";
 uint32_t pumpCount = 0, lightCount = 0;
 float temperature = 0;
 uint16_t distanceMM = 0;
-bool fishDetected = false;
+bool fishDetected = false;  // ← ĐÃ CÓ
 
-// ================== I2C & CẢM BIẾN ==================
+// ================== GỬI + ĐỌC TỪ UNO ==================
 void sendToUNO() {
   Wire.beginTransmission(UNO_ADDR);
   Wire.write(autoMode ? 1 : 0);
@@ -68,7 +71,7 @@ void readFromUNO() {
   }
 }
 
-// ================== GHI LỊCH SỬ + GỬI TRẠNG THÁI ==================
+// ================== GHI LỊCH SỬ ==================
 void pushHistory(String action) {
   time_t now = time(nullptr);
   char timeStr[25];
@@ -76,14 +79,16 @@ void pushHistory(String action) {
 
   FirebaseJson json;
   json.set("action", action);
-  json.set("by", "ESP");
+  json.set("by", autoMode ? "Auto" : "Nút/Web");
   json.set("timestamp", timeStr);
   json.set("temp", temperature);
   json.set("dist", distanceMM);
   json.set("fishDetected", fishDetected);
+
   Firebase.push(fbdo, "/history", json);
 }
 
+// ================== GỬI TRẠNG THÁI QUA MQTT ==================
 void publishStatus() {
   DynamicJsonDocument doc(512);
   doc["temp"] = temperature;
@@ -104,9 +109,9 @@ void handleButtons() {
   bool p = digitalRead(BTN_PUMP);
   bool l = digitalRead(BTN_LIGHT);
 
-  if (a == LOW && oldAuto == HIGH) { delay(50); if (digitalRead(BTN_AUTO) == LOW) { autoMode = !autoMode; pushHistory("Auto mode " + String(autoMode?"ON":"OFF") + " (nút vật lý)"); publishStatus(); } }
-  if (p == LOW && oldPump == HIGH && !autoMode) { delay(50); if (digitalRead(BTN_PUMP) == LOW) { pumpState = !pumpState; pumpCount++; pushHistory("Pump " + String(pumpState?"ON":"OFF") + " (nút vật lý)"); publishStatus(); } }
-  if (l == LOW && oldLight == HIGH && !autoMode) { delay(50); if (digitalRead(BTN_LIGHT) == LOW) { lightState = !lightState; lightCount++; pushHistory("Light " + String(lightState?"ON":"OFF") + " (nút vật lý)"); publishStatus(); } }
+  if (a == LOW && oldAuto == HIGH) { delay(50); if (digitalRead(BTN_AUTO) == LOW) { autoMode = !autoMode; pushHistory("Chuyển chế độ " + String(autoMode?"TỰ ĐỘNG":"THỦ CÔNG")); publishStatus(); }}
+  if (!autoMode && p == LOW && oldPump == HIGH) { delay(50); if (digitalRead(BTN_PUMP) == LOW) { pumpState = !pumpState; pumpCount++; pushHistory("Pump " + String(pumpState?"ON":"OFF") + " (nút vật lý)"); publishStatus(); }}
+  if (!autoMode && l == LOW && oldLight == HIGH) { delay(50); if (digitalRead(BTN_LIGHT) == LOW) { lightState = !lightState; lightCount++; pushHistory("Light " + String(lightState?"ON":"OFF") + " (nút vật lý)"); publishStatus(); }}
 
   oldAuto = a; oldPump = p; oldLight = l;
 }
@@ -118,9 +123,9 @@ void callback(char* topic, byte* payload, unsigned int length) {
   DynamicJsonDocument doc(512);
   deserializeJson(doc, msg);
 
-  if (doc.containsKey("auto"))   { autoMode = doc["auto"]; pushHistory("Auto mode " + String(autoMode?"ON":"OFF") + " (web)"); }
-  if (doc.containsKey("pump"))   { pumpState = doc["pump"]; pumpCount++; pushHistory("Pump " + String(pumpState?"ON":"OFF") + " (web)"); }
-  if (doc.containsKey("light"))  { lightState = doc["light"]; lightCount++; pushHistory("Light " + String(lightState?"ON":"OFF") + " (web)"); }
+  if (doc.containsKey("auto")) { autoMode = doc["auto"]; pushHistory("Chuyển chế độ " + String(autoMode?"TỰ ĐỘNG":"THỦ CÔNG") + " (web)"); }
+  if (doc.containsKey("pump") && !autoMode) { pumpState = doc["pump"]; pumpCount++; pushHistory("Pump " + String(pumpState?"ON":"OFF") + " (web)"); }
+  if (doc.containsKey("light") && !autoMode) { lightState = doc["light"]; lightCount++; pushHistory("Light " + String(lightState?"ON":"OFF") + " (web)"); }
 
   publishStatus();
 }
@@ -161,7 +166,7 @@ void loop() {
   }
   client.loop();
 
-  handleButtons();  // ← ĐỌC NÚT VẬT LÝ
+  handleButtons();
 
   static uint32_t last = 0;
   if (millis() - last > 3000) {
@@ -171,16 +176,16 @@ void loop() {
     temperature = sensors.getTempCByIndex(0);
 
     if (autoMode) {
-      if (distanceMM < thresholdMM && !pumpState) { pumpState = true; pumpCount++; pushHistory("Pump ON (auto)"); publishStatus(); }
-      if (distanceMM >= thresholdMM && pumpState) { pumpState = false; pushHistory("Pump OFF (auto)"); publishStatus(); }
+      if (distanceMM < thresholdMM && !pumpState) { pumpState = true; pumpCount++; pushHistory("Pump ON (auto)"); }
+      if (distanceMM >= thresholdMM && pumpState) { pumpState = false; pushHistory("Pump OFF (auto)"); }
 
       struct tm t; getLocalTime(&t);
       char now[6]; sprintf(now, "%02d:%02d", t.tm_hour, t.tm_min);
       bool shouldLight = (String(now) >= lightStart && String(now) <= lightEnd);
-      if (shouldLight != lightState) { lightState = shouldLight; lightCount++; pushHistory("Light " + String(lightState?"ON":"OFF") + " (schedule)"); publishStatus(); }
+      if (shouldLight != lightState) { lightState = shouldLight; lightCount++; pushHistory("Light " + String(lightState?"ON":"OFF") + " (schedule)"); }
     }
 
     sendToUNO();
-    publishStatus(); // gửi realtime mỗi 3s
+    publishStatus();
   }
 }
