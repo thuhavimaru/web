@@ -1,50 +1,50 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>NAGUMO - Bể Cá Thông Minh VIMARU</title>
+  <meta charset="UTF-8">
+  <title>NAGUMO - Điều khiển bể cá</title>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <style>
-    body {font-family: system-ui, sans-serif; background:#0f172a; color:#e2e8f0; margin:0; padding:15px;}
-    h1 {text-align:center; color:#22d3ee;}
-    .card {background:#1e293b; border-radius:16px; padding:20px; margin:15px 0; text-align:center;}
-    button {width:100%; padding:18px; margin:10px 0; font-size:18px; font-weight:bold; border:none; border-radius:12px; cursor:pointer;}
-    .on {background:#22c55e; color:white;}
-    .off {background:#ef4444; color:white;}
-    .auto {background:#8b5cf6; color:white;}
-    #status {font-size:22px; padding:15px; background:#1e40af; border-radius:12px;}
+    body {font-family: Arial; background:white; color:black; padding:20px; margin:0;}
+    h1 {text-align:center; color:#0066cc; border-bottom:2px solid #0066cc; padding-bottom:10px;}
+    .status {font-size:24px; text-align:center; margin:20px; padding:15px; background:#f0f0f0;}
+    .btn {display:block; width:80%; margin:15px auto; padding:20px; font-size:20px; text-align:center;}
+    .on {background:#00aa00; color:white;}
+    .off {background:#cc0000; color:white;}
+    .auto {background:#0066cc; color:white;}
+    .info {margin:20px; font-size:18px; text-align:center;}
   </style>
 </head>
 <body>
-  <h1>NAGUMO - BỂ CÁ THÔNG MINH</h1>
-  <div class="card" id="status">Đang kết nối...</div>
+  <h1>HỆ THỐNG ĐIỀU KHIỂN BỂ CÁ NAGUMO</h1>
+  <p style="text-align:center;">Trường Đại học Hàng Hải Việt Nam - VIMARU 2025</p>
 
-  <div class="card">
-    <div style="font-size:28px;">Nhiệt độ: <b><span id="temp">--</span>°C</b></div>
-    <div style="font-size:28px;">Mực nước: <b><span id="dist">--</span> mm</b></div>
+  <div class="status" id="connectStatus">Đang kết nối...</div>
+
+  <div class="info">
+    Nhiệt độ: <b><span id="temp">--</span> °C</b><br><br>
+    Mực nước: <b><span id="dist">--</span> mm</b>
   </div>
 
-  <button id="btnAuto" class="auto">CHẾ ĐỘ AUTO</button>
-  <button id="btnPump" class="off">BƠM: DỪNG</button>
-  <button id="btnLight" class="off">ĐÈN: TẮT</button>
+  <button class="btn auto" id="btnAuto">CHẾ ĐỘ AUTO</button>
+  <button class="btn off" id="btnPump">BƠM: DỪNG</button>
+  <button class="btn off" id="btnLight">ĐÈN: TẮT</button>
 
-  <div class="card">
-    <p>Số lần bật bơm: <b><span id="pumpCount">0</span></b></p>
-    <p>Số lần bật đèn: <b><span id="lightCount">0</span></b></p>
+  <div class="info">
+    Số lần bật bơm: <b><span id="pumpCount">0</span></b><br>
+    Số lần bật đèn: <b><span id="lightCount">0</span></b>
   </div>
 
   <div style="text-align:center; margin-top:30px;">
-    <a href="report.html" style="color:#22d3ee; font-size:18px;">Mở trang Báo cáo & Xuất Excel</a>
+    <a href="report.html" style="font-size:18px; color:#0066cc;">→ Xem báo cáo chi tiết</a>
   </div>
 
 <script>
-// KẾT NỐI MQTT (đã test 100% ổn định)
 const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt');
 const topic = 'vimaru/nagumo/status';
 
 client.on('connect', () => {
-  document.getElementById('status').innerHTML = 'ĐÃ KẾT NỐI – DỮ LIỆU REALTIME!';
+  document.getElementById('connectStatus').innerHTML = '<b style="color:green;">ĐÃ KẾT NỐI THÀNH CÔNG!</b>';
   client.subscribe(topic);
 });
 
@@ -56,18 +56,16 @@ client.on('message', (t, msg) => {
   document.getElementById('pumpCount').innerText = latest.pumpCount || 0;
   document.getElementById('lightCount').innerText = latest.lightCount || 0;
 
-  // Cập nhật nút
-  document.getElementById('btnAuto').className = latest.auto ? 'auto' : 'off';
-  document.getElementById('btnAuto').innerText = latest.auto ? 'AUTO MODE' : 'MANUAL MODE';
+  document.getElementById('btnAuto').className = latest.auto ? 'btn auto' : 'btn off';
+  document.getElementById('btnAuto').innerText = latest.auto ? 'CHẾ ĐỘ AUTO' : 'CHẾ ĐỘ THỦ CÔNG';
 
-  document.getElementById('btnPump').className = latest.pump ? 'on' : 'off';
+  document.getElementById('btnPump').className = latest.pump ? 'btn on' : 'btn off';
   document.getElementById('btnPump').innerText = latest.pump ? 'BƠM ĐANG CHẠY' : 'BƠM DỪNG';
 
-  document.getElementById('btnLight').className = latest.light ? 'on' : 'off';
-  document.getElementById('btnLight').innerText = latest.light ? 'ĐÈN BẬT' : 'ĐÈN TẮT';
+  document.getElementById('btnLight').className = latest.light ? 'btn on' : 'btn off';
+  document.getElementById('btnLight').innerText = latest.light ? 'ĐÈN ĐANG BẬT' : 'ĐÈN TẮT';
 });
 
-// Gửi lệnh
 function send(obj) { client.publish('vimaru/nagumo/cmd', JSON.stringify(obj)); }
 document.getElementById('btnAuto').onclick  = () => send({auto: !latest.auto});
 document.getElementById('btnPump').onclick  = () => send({pump: !latest.pump});
