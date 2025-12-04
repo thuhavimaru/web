@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>ESP Control Panel with History</title>
+
+<!-- Firebase v8 compat -->
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+
+<style>
+body { font-family: Arial; padding: 20px; background: #f9f9f9; }
+#alertBox, #historyBox { padding:12px; border:1px solid #aaa; border-radius:8px; margin-bottom:20px; background:#fff3cd; max-height:180px; overflow-y:auto; }
+.grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap:15px; }
+.card { background:#fff; border-radius:12px; padding:15px; box-shadow:0 4px 8px rgba(0,0,0,0.08); display:flex; flex-direction:column; align-items:center; }
+.btn { width:100%; padding:12px; margin-bottom:10px; border:none; border-radius:10px; cursor:pointer; font-size:16px; font-weight:600; }
+.btn:disabled { background:#ddd; cursor:not-allowed; }
+label{display:inline-block; width:70px;}
+small { color:#666; }
+</style>
+</head>
+<body>
+
+<h2>ESP Control Panel</h2>
+
+<div id="alertBox"><ul id="alertList"></ul></div>
+
+<div class="grid">
+  <div class="card">
+    <button id="btnAuto" class="btn">Chế độ: ---</button>
+    <small>* Auto tắt/bật đèn theo lịch</small>
+  </div>
+
+  <div class="card">
+    <div>Mực nước: <b><span id="waterValue">---</span> mm</b></div>
+    <div>Nhiệt độ: <b><span id="tempValue">---</span> °C</b></div>
+  </div>
+
+  <div class="card">
+    <button id="btnLight" class="btn">Đèn: ---</button>
+    <p>Số lần bật: <span id="lightCount">0</span></p>
+    <div>
+      <label>Bật từ</label><input id="lightStart" type="time"><br><br>
+      <label>Đến</label><input id="lightEnd" type="time"><br><br>
+      <button id="saveLightSchedule" class="btn">Lưu lịch</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <button id="btnPump" class="btn">Bơm: ---</button>
+    <p>Số lần bật: <span id="pumpCount">0</span></p>
+    <div>
+      <label>Ngưỡng</label><input id="threshold" type="number" min="0"><br><br>
+      <button id="saveThreshold" class="btn">Lưu ngưỡng</button>
+    </div>
+  </div>
+</div>
+
+<h3>Lịch sử thao tác</h3>
+<div id="historyBox"><ul id="historyList"></ul></div>
+
+<script>
+var firebaseConfig = {
+  apiKey: "AIzaSyDxAPWDdTzTHbK9Bggzet9l9G0U0r2fMDI",
+  authDomain: "pump-88184.firebaseapp.com",
+  databaseURL: "https://pump-88184-default-rtdb.firebaseio.com",
+  projectId: "pump-88184"
+};
+firebase.initializeApp(firebaseConfig);
+var db = firebase.database();
+var auth = firebase.auth();
+
+/* LOGIN */
+var USER_EMAIL = "a@gmail.com";
+var USER_PASS  = "1234567";
+auth.signInWithEmailAndPassword(USER_EMAIL, USER_PASS)
+.then(()=> console.log("Web logged in"))
+.catch(e => { alert("Login failed: "+e.message); console.error(e); });
+
+/* UI elements */
+const btnAuto = document.getElementById("btnAuto");
+const btnPump = document.getElementById("btnPump");
+const btnLight = document.getElementById("btnLight");
+const waterVal = document.getElementById("waterValue");
+const tempVal  = document.getElementById("tempValue");
+const pumpCountElem = document.getElementById("pumpCount");
+const lightCountElem = document.getElementById("lightCount");
+const lightStart = document.getElementById("lightStart");
+const lightEnd = document.getElementById("lightEnd");
+const saveLightSchedule = document.getElementById("saveLightSchedule");
+const thresholdInput = document.getElementById("threshold");
+const saveThreshold = document.getElementById("saveThreshold");
+const historyList = document.getElementById("historyList");
+
+let alertQueue = [];
+function addAlert(msg, color="orange"){
+  if(alertQueue.length >= 3) alertQueue.pop();
+  alertQueue.unshift({msg,color});
+  renderAlerts();
+}
+function renderAlerts(){
+  const list = document.getElementById("alertList");
+  list.innerHTML = "";
+  alertQueue.forEach(a=>{
+    const li = document.createElement("li");
+    li.style.color = a.color;
+    li.style.fontWeight = "bold";
+    li.innerText = a.msg;
+    list.appendChild(li);
+  });
+}
+
+/* PUSH HISTORY từ Web */
+function pushHistory(action){
+  const json = { action, by:"Web", timestamp: Date.now() };
+  db.ref("/fish/history").push(json);
+}
+
+/* Listen status (/fish) */
+db.ref("/fish").on("value", snap=>{
+  if(!snap.exists()) return;
+  const s = snap.val();
+  waterVal.innerText = s.distance_mm ?? "---";
+  tempVal.innerText = s.temperature ?? "---";
+  pumpCountElem.innerText = s.pumpCount ?? 0;
+  lightCountElem.innerText = s.lightCount ?? 0;
+
+  if(s.fastDropAlert) addAlert("⚠ Nước giảm nhanh!", "red");
+  if(s.distance_mm !== undefined && s.distance_mm < (s.thresholdMM||50)) addAlert("⚠ Mực nước dưới ngưỡng!", "orange");
+  btnAuto.innerText = "Chế độ: " + (s.auto ? "AUTO" : "MANUAL");
+  btnPump.innerText = "Bơm: " + (s.pump ? "OFF" : "ON");
+  btnLight.innerText = "Đèn: " + (s.light ? "ON" : "OFF");
+  btnPump.disabled = s.auto;
+  btnLight.disabled = s.auto;
+
+  if(s.thresholdMM !== undefined) thresholdInput.value = s.thresholdMM;
+  if(s.start) lightStart.value = s.start;
+  if(s.end) lightEnd.value = s.end;
+});
+
+/* Listen history */
+db.ref("/fish/history").limitToLast(20).on("child_added", snap=>{
+  const h = snap.val();
+  const li = document.createElement("li");
+  const d = new Date(h.timestamp);
+  li.innerText = `[${d.toLocaleTimeString()}] ${h.by}: ${h.action}`;
+  historyList.prepend(li);
+});
+
+/* UI actions -> Firebase + History */
+btnAuto.onclick = ()=> {
+  db.ref("/fish/auto").once("value").then(snap => {
+    const newVal = !snap.val();
+    db.ref("/fish/auto").set(newVal);
+    pushHistory("Auto mode " + (newVal?"ON":"OFF"));
+  });
+};
+btnPump.onclick = ()=> {
+  db.ref("/fish/pump").once("value").then(snap => {
+    const newVal = !snap.val();
+    db.ref("/fish/pump").set(newVal);
+    pushHistory("Pump " + (newVal?"OFF":"ON"));
+  });
+};
+btnLight.onclick = ()=> {
+  db.ref("/fish/light").once("value").then(snap => {
+    const newVal = !snap.val();
+    db.ref("/fish/light").set(newVal);
+    pushHistory("Light " + (newVal?"ON":"OFF"));
+  });
+};
+saveThreshold.onclick = ()=>{
+  const v = Number(thresholdInput.value||0);
+  db.ref("/fish/thresholdMM").set(v);
+  pushHistory("Threshold set to "+v+" mm");
+};
+saveLightSchedule.onclick = ()=>{
+  const s = lightStart.value;
+  const e = lightEnd.value;
+  if(!s||!e) return alert("Chọn giờ hợp lệ");
+  db.ref("/fish/start").set(s);
+  db.ref("/fish/end").set(e);
+  pushHistory(`Light schedule set: ${s} → ${e}`);
+};
+</script>
+</body>
+</html>
