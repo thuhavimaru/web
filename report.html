@@ -2,6 +2,7 @@
 <html lang="vi">
 <head>
   <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>NAGUMO • Báo cáo</title>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
@@ -19,7 +20,7 @@
     .sum-value {font-size:36px; font-weight:700;}
     .sum-label {font-size:14px; color:#94a3b8; margin-top:8px;}
     table {width:100%; border-collapse:collapse; margin-top:30px; background:var(--card); border-radius:16px; overflow:hidden;}
-    th {background:#1e40af; padding:16px; text-align:center; font-weight:600;}
+    th {background:#1e40af; padding:16px; text-align:center; font-weight:600; color:white;}
     td {padding:14px; text-align:center; border-bottom:1px solid #334155;}
     .fish-yes {color:#10b981; font-weight:bold;}
     .fish-no {color:#ef4444; font-weight:bold;}
@@ -49,63 +50,103 @@
     </div>
     <div class="sum-card">
       <div class="sum-value" id="fishStatus">?</div>
-      <div class="sum-label">Trạng thái cá</div>
+      <div class="sum-label">Trạng thái cá cuối ngày</div>
     </div>
   </div>
 
   <table id="table">
     <tr>
-      <th>STT</th><th>Thời gian</th><th>Hành động</th>
-      <th>Nhiệt độ</th><th>Mực nước</th><th>Cá</th>
+      <th>STT</th>
+      <th>Thời gian</th>
+      <th>Hành động</th>
+      <th>Nhiệt độ (°C)</th>
+      <th>Mực nước (mm)</th>
+      <th>Phát hiện cá</th>
     </tr>
   </table>
 
 <script>
-const firebaseConfig = { apiKey: "AIzaSyAtxDRC6LzxTD-d0JvRDPQnejNgYFVzQ38",
-  databaseURL: "https://nagumo-2f89d-default-rtdb.asia-southeast1.firebasedatabase.app" };
+// Cấu hình Firebase của bạn
+const firebaseConfig = {
+  apiKey: "AIzaSyAtxDRC6LzxTD-d0JvRDPQnejNgYFVzQ38",
+  databaseURL: "https://nagumo-2f89d-default-rtdb.asia-southeast1.firebasedatabase.app"
+};
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
+// Mặc định chọn hôm nay
 document.getElementById('datePicker').valueAsDate = new Date();
 
 function loadReport() {
   const date = document.getElementById('datePicker').value;
-  const start = new Date(date).setHours(0,0,0,0);
-  const end = new Date(date).setHours(23,59,59,999);
+  const start = new Date(date).setHours(0, 0, 0, 0);
+  const end = new Date(date).setHours(23, 59, 59, 999);
 
+  // Reset bảng
   document.getElementById('table').innerHTML = `<tr>
     <th>STT</th><th>Thời gian</th><th>Hành động</th>
-    <th>Nhiệt độ</th><th>Mực nước</th><th>Cá</th>
+    <th>Nhiệt độ (°C)</th><th>Mực nước (mm)</th><th>Phát hiện cá</th>
   </tr>`;
 
-  let stt=1, light=0, pump=0, sumTemp=0, tempCnt=0, lastFish="Không thấy cá";
+  let stt = 1;
+  let lightCnt = 0, pumpCnt = 0;
+  let sumTemp = 0, tempCount = 0;
+  let lastFishStatus = "Chưa có dữ liệu";
 
   db.ref("/history").once("value").then(snap => {
-    const data = snap.val() || {};
-    for (let key in data) {
-      const h = data[key];
-      if (h.timestamp && new Date(h.timestamp).getTime() >= start && new Date(h.timestamp).getTime() <= end) {
-        if (h.action?.includes("Light ON")) light++;
-        if (h.action?.includes("Pump ON")) pump++;
-        if (h.temp) { sumTemp += parseFloat(h.temp); tempCnt++; }
-        if (h.fishDetected !== undefined) lastFish = h.fishDetected ? "PHÁT HIỆN CÁ" : "KHÔNG THẤY CÁ";
+    const records = snap.val();
+    if (!records) return;
 
-        const row = document.getElementById('table').insertRow();
-        row.insertCell().innerText = stt++;
-        row.insertCell().innerText = new Date(h.timestamp).toLocaleString('vi-VN');
-        row.insertCell().innerText = h.action || "-";
-        row.insertCell().innerText = h.temp ? parseFloat(h.temp).toFixed(1)+"°C" : "--";
-        row.insertCell().innerText = h.dist || "--";
-        const cell = row.insertCell();
-        cell.innerHTML = h.fishDetected !== undefined ? (h.fishDetected ? '<span class="fish-yes">CÓ</span>' : '<span class="fish-no">KHÔNG</span>') : "--";
+    Object.keys(records).forEach(key => {
+      const h = records[key];
+
+      // Kiểm tra timestamp có hợp lệ và trong ngày không
+      if (!h.timestamp) return;
+      const ts = new Date(h.timestamp).getTime();
+      if (ts < start || ts > end) return;
+
+      // Đếm hành động
+      if (h.action && h.action.includes("Light ON")) lightCnt++;
+      if (h.action && h.action.includes("Pump ON")) pumpCnt++;
+
+      // Tính nhiệt độ trung bình
+      if (h.temp !== undefined) {
+        sumTemp += parseFloat(h.temp);
+        tempCount++;
       }
-    }
-    document.getElementById('lightCnt').innerText = light;
-    document.getElementById('pumpCnt').innerText = pump;
-    document.getElementById('avgTemp').innerText = tempCnt>0 ? (sumTemp/tempCnt).toFixed(1)+"°C" : "--";
-    document.getElementById('fishStatus').innerText = lastFish;
+
+      // Cập nhật trạng thái cá mới nhất
+      if (h.fishDetected !== undefined) {
+        lastFishStatus = h.fishDetected ? "PHÁT HIỆN CÁ" : "KHÔNG THẤY CÁ";
+      }
+
+      // Thêm dòng vào bảng
+      const row = document.getElementById('table').insertRow();
+      row.insertCell().innerText = stt++;
+      row.insertCell().innerText = new Date(h.timestamp).toLocaleString('vi-VN');
+      row.insertCell().innerText = h.action || "—";
+      row.insertCell().innerText = h.temp !== undefined ? parseFloat(h.temp).toFixed(1) + "°C" : "—";
+      row.insertCell().innerText = h.dist !== undefined ? h.dist + " mm" : "—";
+
+      const fishCell = row.insertCell();
+      if (h.fishDetected !== undefined) {
+        fishCell.innerHTML = h.fishDetected
+          ? '<span class="fish-yes">CÓ CÁ</span>'
+          : '<span class="fish-no">KHÔNG</span>';
+      } else {
+        fishCell.innerText = "—";
+      }
+    });
+
+    // Cập nhật tổng kết
+    document.getElementById('lightCnt').innerText = lightCnt;
+    document.getElementById('pumpCnt').innerText = pumpCnt;
+    document.getElementById('avgTemp').innerText = tempCount > 0 ? (sumTemp / tempCount).toFixed(1) + "°C" : "—";
+    document.getElementById('fishStatus').innerText = lastFishStatus;
   });
 }
+
+// Tự động load khi mở trang
 loadReport();
 </script>
 </body>
