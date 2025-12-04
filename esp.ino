@@ -37,6 +37,7 @@ String lightStart = "07:00", lightEnd = "19:00";
 uint32_t pumpCount = 0, lightCount = 0;
 float temperature = 0;
 uint16_t distanceMM = 0;
+bool fishDetected = false;  // ← DÒNG MỚI – BẮT BUỘC PHẢI CÓ!!!
 
 // ================== I2C UNO ==================
 void sendToUNO() {
@@ -51,20 +52,25 @@ void readFromUNO() {
   Wire.requestFrom(0x08, 3);
   if (Wire.available() >= 3) {
     distanceMM = (Wire.read() << 8) | Wire.read();
-    Wire.read(); // fishDetected
+    fishDetected = Wire.read();  // ← ĐỌC DỮ LIỆU CÁ TỪ UNO
   }
 }
-
 // ================== GHI LỊCH SỬ VÀO FIREBASE ==================
 void pushHistory(String action) {
   time_t now = time(nullptr);
   char timeStr[25];
   strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", localtime(&now));
-  
+
   FirebaseJson json;
   json.set("action", action);
   json.set("by", "ESP");
   json.set("timestamp", timeStr);
+  
+  // THÊM DỮ LIỆU CẢM BIẾN TẠI THỜI ĐIỂM ẤY
+  json.set("temp", temperature);
+  json.set("dist", distanceMM);
+  json.set("fishDetected", fishDetected);
+
   Firebase.push(fbdo, "/history", json);
 }
 
